@@ -21,6 +21,8 @@ namespace softbody {
         public shouldDrawLines: boolean = false
         public damping: number = 0.98
         public springStiffness: number = 0.8
+        public shouldFill: boolean = false
+        public fillColor: number = 2  // Default fill color
 
         private createSegmentSprite(templateImage: Image, x: number, y: number): Sprite {
             let newImage = templateImage.clone()
@@ -173,6 +175,108 @@ namespace softbody {
         }
     }
 
+    // Improved triangle filling function
+    function fillTriangle(img: Image, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, color: number) {
+        // Round coordinates to integers
+        x1 = Math.round(x1)
+        y1 = Math.round(y1)
+        x2 = Math.round(x2)
+        y2 = Math.round(y2)
+        x3 = Math.round(x3)
+        y3 = Math.round(y3)
+
+        // Sort vertices by y-coordinate (y1 <= y2 <= y3)
+        if (y1 > y2) {
+            let tempX = x1
+            let tempY = y1
+            x1 = x2
+            y1 = y2
+            x2 = tempX
+            y2 = tempY
+        }
+        if (y2 > y3) {
+            let tempX = x2
+            let tempY = y2
+            x2 = x3
+            y2 = y3
+            x3 = tempX
+            y3 = tempY
+        }
+        if (y1 > y2) {
+            let tempX = x1
+            let tempY = y1
+            x1 = x2
+            y1 = y2
+            x2 = tempX
+            y2 = tempY
+        }
+
+        // Early return if triangle is completely off-screen
+        if (y3 < 0 || y1 >= img.height) return
+
+        // Clip y-coordinates to screen bounds
+        let startY = Math.max(0, y1)
+        let endY = Math.min(img.height - 1, y3)
+
+        // Calculate slopes with bounds checking
+        let dx13 = y3 - y1 !== 0 ? (x3 - x1) / (y3 - y1) : 0
+        let dx12 = y2 - y1 !== 0 ? (x2 - x1) / (y2 - y1) : 0
+        let dx23 = y3 - y2 !== 0 ? (x3 - x2) / (y3 - y2) : 0
+
+        // Scan each row of the triangle
+        for (let y = startY; y <= endY; y++) {
+            // Calculate x-coordinates where this scanline intersects the triangle edges
+            let sx, ex
+
+            // First half of the triangle
+            if (y < y2) {
+                sx = x1 + dx13 * (y - y1)
+                ex = x1 + dx12 * (y - y1)
+            }
+            // Second half of the triangle
+            else {
+                sx = x1 + dx13 * (y - y1)
+                ex = x2 + dx23 * (y - y2)
+            }
+
+            // Ensure sx <= ex
+            if (sx > ex) {
+                let temp = sx
+                sx = ex
+                ex = temp
+            }
+
+            // Clip x-coordinates to screen bounds
+            sx = Math.max(0, Math.min(img.width - 1, Math.round(sx)))
+            ex = Math.max(0, Math.min(img.width - 1, Math.round(ex)))
+
+            // Draw the horizontal line
+            for (let x = sx; x <= ex; x++) {
+                img.setPixel(x, y, color)
+            }
+        }
+    }
+
+    // Helper function to draw a horizontal line
+    function drawHorizontalLine(img: Image, x1: number, y: number, x2: number, color: number) {
+        if (y < 0 || y >= img.height) return;
+
+        // Ensure x1 <= x2
+        if (x1 > x2) [x1, x2] = [x2, x1];
+
+        // Clip to image bounds
+        x1 = Math.max(0, Math.min(img.width - 1, x1));
+        x2 = Math.max(0, Math.min(img.width - 1, x2));
+
+        // Draw the line
+        for (let x = x1; x <= x2; x++) {
+            img.setPixel(x, y, color);
+        }
+    }
+
+
+
+
     export enum SegmentDirection {
         //% block="right"
         Right,
@@ -281,12 +385,121 @@ namespace softbody {
         softBody.shouldDrawLines = true
     }
 
+    // Add this new block function
+    //% block="fill area between segments of $softBody with color $color"
+    //% softBody.shadow=variables_get
+    //% color.defl=2
+    //% group="Modify"
+    export function setFillBetweenSegments(softBody: SoftBody, color: number) {
+        softBody.fillColor = color
+        softBody.shouldFill = true
+    }
+
+    // Then modify the renderSoftBody function to include the fill option
     //% block="render soft body $softBody with thickness $thickness on $drawTarget"
     //% softBody.shadow=variables_get
     //% thickness.defl=1
     //% drawTarget.shadow=variables_get
     //% group="Update"
     export function renderSoftBody(softBody: SoftBody, thickness: number, drawTarget: Image) {
+        if (softBody.shouldFill && softBody.points.length > 1) {
+            // Create arrays to store the outline points
+            let leftSide: { x: number, y: number }[] = []
+            let rightSide: { x: number, y: number }[] = []
+
+            // Calculate the outline points for each segment
+            for (let i = 0; i < softBody.points.length; i++) {
+                let point = softBody.points[i]
+                let halfWidth = Math.max(2, point.width / 2) // Ensure minimum width
+
+                // Calculate the direction vector
+                let dirX = 0
+                let dirY = 0
+
+                if (i < softBody.points.length - 1 && i > 0) {
+                    // Use average direction for middle points
+                    let prevX = softBody.points[i - 1].x
+                    let prevY = softBody.points[i - 1].y
+                    let nextX = softBody.points[i + 1].x
+                    let nextY = softBody.points[i + 1].y
+
+                    dirX = nextX - prevX
+                    dirY = nextY - prevY
+                } else if (i < softBody.points.length - 1) {
+                    // Use direction to next point for first point
+                    dirX = softBody.points[i + 1].x - point.x
+                    dirY = softBody.points[i + 1].y - point.y
+                } else if (i > 0) {
+                    // Use direction from previous point for last point
+                    dirX = point.x - softBody.points[i - 1].x
+                    dirY = point.y - softBody.points[i - 1].y
+                }
+
+                // Normalize the direction vector
+                let length = Math.sqrt(dirX * dirX + dirY * dirY)
+                if (length > 0) {
+                    dirX /= length
+                    dirY /= length
+                } else {
+                    // Default to horizontal if no direction
+                    dirX = 1
+                    dirY = 0
+                }
+
+                // Calculate perpendicular vector
+                let perpX = -dirY
+                let perpY = dirX
+
+                // Calculate left and right points
+                leftSide.push({
+                    x: point.x + perpX * halfWidth,
+                    y: point.y + perpY * halfWidth
+                })
+
+                rightSide.push({
+                    x: point.x - perpX * halfWidth,
+                    y: point.y - perpY * halfWidth
+                })
+            }
+
+            // Draw filled quads between segments
+            for (let i = 0; i < softBody.points.length - 1; i++) {
+                // Get the four corners of the quad
+                let x1 = leftSide[i].x
+                let y1 = leftSide[i].y
+                let x2 = leftSide[i + 1].x
+                let y2 = leftSide[i + 1].y
+                let x3 = rightSide[i + 1].x
+                let y3 = rightSide[i + 1].y
+                let x4 = rightSide[i].x
+                let y4 = rightSide[i].y
+
+                // Check if any of the points are too far off-screen
+                const maxDistance = 1000 // Maximum allowed distance from screen
+                const screenBounds = {
+                    minX: -maxDistance,
+                    minY: -maxDistance,
+                    maxX: drawTarget.width + maxDistance,
+                    maxY: drawTarget.height + maxDistance
+                }
+
+                // Skip this quad if any point is too far off-screen
+                if (
+                    x1 < screenBounds.minX || x1 > screenBounds.maxX || y1 < screenBounds.minY || y1 > screenBounds.maxY ||
+                    x2 < screenBounds.minX || x2 > screenBounds.maxX || y2 < screenBounds.minY || y2 > screenBounds.maxY ||
+                    x3 < screenBounds.minX || x3 > screenBounds.maxX || y3 < screenBounds.minY || y3 > screenBounds.maxY ||
+                    x4 < screenBounds.minX || x4 > screenBounds.maxX || y4 < screenBounds.minY || y4 > screenBounds.maxY
+                ) {
+                    continue
+                }
+
+                // Draw two triangles to form the quad
+                fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, softBody.fillColor)
+                fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, softBody.fillColor)
+            }
+        }
+
+        // Then draw the lines as before
         if (softBody.shouldDrawLines) {
             for (let i = 0; i < softBody.points.length - 1; i++) {
                 drawTarget.drawLine(
@@ -299,8 +512,6 @@ namespace softbody {
             }
         }
     }
-
-
 
 
     //% block="set $softBody damping to $value"

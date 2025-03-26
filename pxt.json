@@ -15,11 +15,9 @@
         "images.g.jres",
         "images.g.ts"
     ],
-    "testFiles": [
-        "test.ts"
-    ],
+    "testFiles": [],
     "targetVersions": {
-        "target": "1.12.58",
+        "target": "2.0.40",
         "targetId": "arcade"
     },
     "supportedTargets": [
