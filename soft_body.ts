@@ -19,7 +19,7 @@ namespace softbody {
         }[] = []
         public lineColor: number = 1
         public shouldDrawLines: boolean = false
-        public damping: number = 0.98
+        public damping: number = 0.85
         public springStiffness: number = 0.8
         public shouldFill: boolean = false
         public fillColor: number = 2  // Default fill color
