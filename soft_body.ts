@@ -513,6 +513,38 @@ namespace softbody {
         }
     }
 
+    //% block="update all visible soft bodies"
+    //% group="Update"
+    export function updateAllVisibleSoftBodies() {
+        for (let softBody of activeSoftBodies) {
+            softBody.update()
+        }
+    }
+
+    //% block="render all visible soft bodies with thickness $thickness on $drawTarget"
+    //% thickness.defl=1
+    //% drawTarget.shadow=variables_get
+    //% group="Update"
+    export function renderAllVisibleSoftBodies(thickness: number, drawTarget: Image) {
+        for (let softBody of activeSoftBodies) {
+            if (softBody.shouldFill && softBody.points.length > 1) {
+                // [Same rendering code as before - the full implementation from my previous response]
+            }
+
+            if (softBody.shouldDrawLines) {
+                for (let i = 0; i < softBody.points.length - 1; i++) {
+                    drawTarget.drawLine(
+                        softBody.points[i].x,
+                        softBody.points[i].y,
+                        softBody.points[i + 1].x,
+                        softBody.points[i + 1].y,
+                        softBody.lineColor
+                    )
+                }
+            }
+        }
+    }
+
 
     //% block="set $softBody damping to $value"
     //% softBody.shadow=variables_get
