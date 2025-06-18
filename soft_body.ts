@@ -528,7 +528,100 @@ namespace softbody {
     export function renderAllVisibleSoftBodies(thickness: number, drawTarget: Image) {
         for (let softBody of activeSoftBodies) {
             if (softBody.shouldFill && softBody.points.length > 1) {
-                // [Same rendering code as before - the full implementation from my previous response]
+                // Create arrays to store the outline points
+                let leftSide: { x: number, y: number }[] = []
+                let rightSide: { x: number, y: number }[] = []
+
+                // Calculate the outline points for each segment
+                for (let i = 0; i < softBody.points.length; i++) {
+                    let point = softBody.points[i]
+                    let halfWidth = Math.max(2, point.width / 2) // Ensure minimum width
+
+                    // Calculate the direction vector
+                    let dirX = 0
+                    let dirY = 0
+
+                    if (i < softBody.points.length - 1 && i > 0) {
+                        // Use average direction for middle points
+                        let prevX = softBody.points[i - 1].x
+                        let prevY = softBody.points[i - 1].y
+                        let nextX = softBody.points[i + 1].x
+                        let nextY = softBody.points[i + 1].y
+
+                        dirX = nextX - prevX
+                        dirY = nextY - prevY
+                    } else if (i < softBody.points.length - 1) {
+                        // Use direction to next point for first point
+                        dirX = softBody.points[i + 1].x - point.x
+                        dirY = softBody.points[i + 1].y - point.y
+                    } else if (i > 0) {
+                        // Use direction from previous point for last point
+                        dirX = point.x - softBody.points[i - 1].x
+                        dirY = point.y - softBody.points[i - 1].y
+                    }
+
+                    // Normalize the direction vector
+                    let length = Math.sqrt(dirX * dirX + dirY * dirY)
+                    if (length > 0) {
+                        dirX /= length
+                        dirY /= length
+                    } else {
+                        // Default to horizontal if no direction
+                        dirX = 1
+                        dirY = 0
+                    }
+
+                    // Calculate perpendicular vector
+                    let perpX = -dirY
+                    let perpY = dirX
+
+                    // Calculate left and right points
+                    leftSide.push({
+                        x: point.x + perpX * halfWidth,
+                        y: point.y + perpY * halfWidth
+                    })
+
+                    rightSide.push({
+                        x: point.x - perpX * halfWidth,
+                        y: point.y - perpY * halfWidth
+                    })
+                }
+
+                // Draw filled quads between segments
+                for (let i = 0; i < softBody.points.length - 1; i++) {
+                    // Get the four corners of the quad
+                    let x1 = leftSide[i].x
+                    let y1 = leftSide[i].y
+                    let x2 = leftSide[i + 1].x
+                    let y2 = leftSide[i + 1].y
+                    let x3 = rightSide[i + 1].x
+                    let y3 = rightSide[i + 1].y
+                    let x4 = rightSide[i].x
+                    let y4 = rightSide[i].y
+
+                    // Check if any of the points are too far off-screen
+                    const maxDistance = 1000 // Maximum allowed distance from screen
+                    const screenBounds = {
+                        minX: -maxDistance,
+                        minY: -maxDistance,
+                        maxX: drawTarget.width + maxDistance,
+                        maxY: drawTarget.height + maxDistance
+                    }
+
+                    // Skip this quad if any point is too far off-screen
+                    if (
+                        x1 < screenBounds.minX || x1 > screenBounds.maxX || y1 < screenBounds.minY || y1 > screenBounds.maxY ||
+                        x2 < screenBounds.minX || x2 > screenBounds.maxX || y2 < screenBounds.minY || y2 > screenBounds.maxY ||
+                        x3 < screenBounds.minX || x3 > screenBounds.maxX || y3 < screenBounds.minY || y3 > screenBounds.maxY ||
+                        x4 < screenBounds.minX || x4 > screenBounds.maxX || y4 < screenBounds.minY || y4 > screenBounds.maxY
+                    ) {
+                        continue
+                    }
+
+                    // Draw two triangles to form the quad
+                    fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, softBody.fillColor)
+                    fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, softBody.fillColor)
+                }
             }
 
             if (softBody.shouldDrawLines) {
@@ -543,6 +636,140 @@ namespace softbody {
                 }
             }
         }
+    }
+
+    //% block="render soft body $softBody with thickness $thickness on sprite $targetSprite"
+    //% softBody.shadow=variables_get
+    //% thickness.defl=1
+    //% targetSprite.shadow=variables_get
+    //% group="Update"
+    export function renderSoftBodyOnSprite(softBody: SoftBody, thickness: number, targetSprite: Sprite) {
+        let drawTarget = targetSprite.image
+        let spriteX = targetSprite.x - targetSprite.image.width / 2
+        let spriteY = targetSprite.y - targetSprite.image.height / 2
+
+        if (softBody.shouldDrawLines) {
+            for (let i = 0; i < softBody.points.length - 1; i++) {
+                // Convert world coordinates to sprite-relative coordinates
+                let x1 = softBody.points[i].x - spriteX
+                let y1 = softBody.points[i].y - spriteY
+                let x2 = softBody.points[i + 1].x - spriteX
+                let y2 = softBody.points[i + 1].y - spriteY
+
+                // Only draw if the line is within the sprite bounds
+                if (isLineInBounds(x1, y1, x2, y2, drawTarget.width, drawTarget.height)) {
+                    drawTarget.drawLine(x1, y1, x2, y2, softBody.lineColor)
+                }
+            }
+        }
+    }
+
+    //% block="render all visible soft bodies with thickness $thickness on sprite $targetSprite"
+    //% thickness.defl=1
+    //% targetSprite.shadow=variables_get
+    //% group="Update"
+    export function renderAllVisibleSoftBodiesOnSprite(thickness: number, targetSprite: Sprite) {
+        let drawTarget = targetSprite.image
+
+        // Get camera position to calculate proper offset
+        let cameraX = scene.cameraProperty(CameraProperty.X)
+        let cameraY = scene.cameraProperty(CameraProperty.Y)
+
+        // Calculate sprite's top-left corner in world coordinates
+        let spriteWorldX = cameraX - targetSprite.image.width / 2
+        let spriteWorldY = cameraY - targetSprite.image.height / 2
+
+        for (let softBody of activeSoftBodies) {
+            if (softBody.shouldFill && softBody.points.length > 1) {
+                // Handle fill rendering with camera-relative coordinates
+                let leftSide: { x: number, y: number }[] = []
+                let rightSide: { x: number, y: number }[] = []
+
+                for (let i = 0; i < softBody.points.length; i++) {
+                    let point = softBody.points[i]
+                    let halfWidth = Math.max(2, point.width / 2)
+
+                    // Convert world coordinates to canvas-relative coordinates
+                    let relativeX = point.x - spriteWorldX
+                    let relativeY = point.y - spriteWorldY
+
+                    let dirX = 0
+                    let dirY = 0
+                    if (i < softBody.points.length - 1 && i > 0) {
+                        let prevX = softBody.points[i - 1].x - spriteWorldX
+                        let prevY = softBody.points[i - 1].y - spriteWorldY
+                        let nextX = softBody.points[i + 1].x - spriteWorldX
+                        let nextY = softBody.points[i + 1].y - spriteWorldY
+                        dirX = nextX - prevX
+                        dirY = nextY - prevY
+                    } else if (i < softBody.points.length - 1) {
+                        dirX = (softBody.points[i + 1].x - spriteWorldX) - relativeX
+                        dirY = (softBody.points[i + 1].y - spriteWorldY) - relativeY
+                    } else if (i > 0) {
+                        dirX = relativeX - (softBody.points[i - 1].x - spriteWorldX)
+                        dirY = relativeY - (softBody.points[i - 1].y - spriteWorldY)
+                    }
+
+                    let length = Math.sqrt(dirX * dirX + dirY * dirY)
+                    if (length > 0) {
+                        dirX /= length
+                        dirY /= length
+                    } else {
+                        dirX = 1
+                        dirY = 0
+                    }
+
+                    let perpX = -dirY
+                    let perpY = dirX
+
+                    leftSide.push({
+                        x: relativeX + perpX * halfWidth,
+                        y: relativeY + perpY * halfWidth
+                    })
+                    rightSide.push({
+                        x: relativeX - perpX * halfWidth,
+                        y: relativeY - perpY * halfWidth
+                    })
+                }
+
+                // Draw filled quads between segments
+                for (let i = 0; i < softBody.points.length - 1; i++) {
+                    let x1 = leftSide[i].x
+                    let y1 = leftSide[i].y
+                    let x2 = leftSide[i + 1].x
+                    let y2 = leftSide[i + 1].y
+                    let x3 = rightSide[i + 1].x
+                    let y3 = rightSide[i + 1].y
+                    let x4 = rightSide[i].x
+                    let y4 = rightSide[i].y
+
+                    fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, softBody.fillColor)
+                    fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, softBody.fillColor)
+                }
+            }
+
+            if (softBody.shouldDrawLines) {
+                for (let i = 0; i < softBody.points.length - 1; i++) {
+                    // Convert world coordinates to canvas-relative coordinates
+                    let x1 = softBody.points[i].x - spriteWorldX
+                    let y1 = softBody.points[i].y - spriteWorldY
+                    let x2 = softBody.points[i + 1].x - spriteWorldX
+                    let y2 = softBody.points[i + 1].y - spriteWorldY
+
+                    // Only draw if the line is within reasonable bounds
+                    if (isLineInBounds(x1, y1, x2, y2, drawTarget.width, drawTarget.height)) {
+                        drawTarget.drawLine(x1, y1, x2, y2, softBody.lineColor)
+                    }
+                }
+            }
+        }
+    }
+
+
+
+    function isLineInBounds(x1: number, y1: number, x2: number, y2: number, width: number, height: number): boolean {
+        return !((x1 < 0 && x2 < 0) || (x1 >= width && x2 >= width) ||
+            (y1 < 0 && y2 < 0) || (y1 >= height && y2 >= height))
     }
 
 
