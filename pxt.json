@@ -7,13 +7,7 @@
     "files": [
         "main.blocks",
         "main.ts",
-        "README.md",
-        "assets.json",
-        "soft_body.ts",
-        "tilemap.g.jres",
-        "tilemap.g.ts",
-        "images.g.jres",
-        "images.g.ts"
+        "soft_body.ts"
     ],
     "testFiles": [],
     "targetVersions": {
