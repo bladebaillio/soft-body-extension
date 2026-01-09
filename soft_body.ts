@@ -1,5 +1,6 @@
-//% weight=100 color=#7E58AD icon="➰"
+//% weight=100 color=#7E58AD icon="\uf0c1"
 namespace softbody {
+
     let activeSoftBodies: SoftBody[] = []
     export class SoftBody {
         public points: Sprite[] = []
@@ -227,22 +228,6 @@ namespace softbody {
         activeSoftBodies.push(body)
         return body
     }
-    //% block="create soft body from sprite array $segments with length $length gravity $hasGravity"
-    //% segments.shadow=variables_get
-    //% length.defl=5
-    //% hasGravity.defl=true
-    //% group="Creation"
-    export function createSoftBodyFromArray(segments: Sprite[], length: number, hasGravity: boolean): SoftBody {
-        let body = new SoftBody(segments[0], length, segments.length, hasGravity)
-        for (let i = 0; i < segments.length; i++) {
-            body.points[i].destroy()
-            body.points[i] = segments[i]
-            body.oldX[i] = segments[i].x
-            body.oldY[i] = segments[i].y
-        }
-        activeSoftBodies.push(body)
-        return body
-    }
     //% block="set segment $index in $softBody gravity $hasGravity"
     //% index.defl=0
     //% softBody.shadow=variables_get
@@ -272,14 +257,7 @@ namespace softbody {
     export function setSegmentPosition(index: number, softBody: SoftBody, x: number, y: number) {
         softBody.setSegmentPosition(index, x, y)
     }
-    //% block="connect segment $segment1 of $body1 to segment $segment2 of $body2"
-    //% body1.shadow=variables_get
-    //% body2.shadow=variables_get
-    //% segment1.defl=0 segment2.defl=0
-    //% group="Modify"
-    export function connectSoftBodies(body1: SoftBody, segment1: number, body2: SoftBody, segment2: number) {
-        SoftBody.connectSoftBodies(body1, segment1, body2, segment2)
-    }
+    
     //% block="get segment $index from $softBody"
     //% softBody.shadow=variables_get
     //% index.defl=0
@@ -303,12 +281,11 @@ namespace softbody {
         softBody.fillColor = color
         softBody.shouldFill = true
     }
-    //% block="render soft body $softBody with thickness $thickness on $drawTarget"
+    //% block="render soft body $softBody on $drawTarget"
     //% softBody.shadow=variables_get
-    //% thickness.defl=1
     //% drawTarget.shadow=variables_get
     //% group="Update"
-    export function renderSoftBody(softBody: SoftBody, thickness: number, drawTarget: Image) {
+    export function renderSoftBody(softBody: SoftBody, drawTarget: Image) {
         if (softBody.shouldFill && softBody.points.length > 1) {
             let leftSide: { x: number, y: number }[] = []
             let rightSide: { x: number, y: number }[] = []
@@ -397,11 +374,10 @@ namespace softbody {
             softBody.update()
         }
     }
-    //% block="render all visible soft bodies with thickness $thickness on $drawTarget"
-    //% thickness.defl=1
+    //% block="render all visible soft bodies on $drawTarget"
     //% drawTarget.shadow=variables_get
     //% group="Update"
-    export function renderAllVisibleSoftBodies(thickness: number, drawTarget: Image) {
+    export function renderAllVisibleSoftBodies(drawTarget: Image) {
         for (let softBody of activeSoftBodies) {
             if (softBody.shouldFill && softBody.points.length > 1) {
                 let leftSide: { x: number, y: number }[] = []
@@ -485,12 +461,11 @@ namespace softbody {
             }
         }
     }
-    //% block="render soft body $softBody with thickness $thickness on sprite $targetSprite"
+    //% block="render soft body $softBody on sprite $targetSprite"
     //% softBody.shadow=variables_get
-    //% thickness.defl=1
     //% targetSprite.shadow=variables_get
     //% group="Update"
-    export function renderSoftBodyOnSprite(softBody: SoftBody, thickness: number, targetSprite: Sprite) {
+    export function renderSoftBodyOnSprite(softBody: SoftBody, targetSprite: Sprite) {
         let drawTarget = targetSprite.image
         let spriteX = targetSprite.x - targetSprite.image.width / 2
         let spriteY = targetSprite.y - targetSprite.image.height / 2
@@ -506,11 +481,10 @@ namespace softbody {
             }
         }
     }
-    //% block="render all visible soft bodies with thickness $thickness on sprite $targetSprite"
-    //% thickness.defl=1
+    //% block="render all visible soft bodies on sprite $targetSprite"
     //% targetSprite.shadow=variables_get
     //% group="Update"
-    export function renderAllVisibleSoftBodiesOnSprite(thickness: number, targetSprite: Sprite) {
+    export function renderAllVisibleSoftBodiesOnSprite(targetSprite: Sprite) {
         let drawTarget = targetSprite.image
         let cameraX = scene.cameraProperty(CameraProperty.X)
         let cameraY = scene.cameraProperty(CameraProperty.Y)
@@ -712,3 +686,5 @@ namespace softbody {
         }
     }
 }
+
+
