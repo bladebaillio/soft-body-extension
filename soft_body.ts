@@ -22,6 +22,7 @@ namespace softbody {
         public shouldDrawLines: boolean = false
         public damping: number = 0.85
         public springStiffness: number = 0.8
+        public maxSegmentVelocity: number = 0
         public shouldFill: boolean = false
         public fillColor: number = 2
         private createSegmentSprite(templateImage: Image, x: number, y: number): Sprite {
@@ -77,6 +78,15 @@ namespace softbody {
                     let tempY = point.y
                     let velX = (point.x - this.oldX[i]) * this.damping
                     let velY = (point.y - this.oldY[i]) * this.damping
+                    if (this.maxSegmentVelocity > 0) {
+                        let speed = Math.sqrt(velX * velX + velY * velY)
+                        if (speed > this.maxSegmentVelocity) {
+                            let scale = this.maxSegmentVelocity / speed
+                            velX *= scale
+                            velY *= scale
+                        }
+                    }
+
                     point.x += velX + forces[i].x
                     point.y += velY + forces[i].y
                     if (this.hasGravity) {
@@ -577,6 +587,13 @@ namespace softbody {
     //% group="Modify"
     export function setSpringStiffness(softBody: SoftBody, value: number) {
         softBody.springStiffness = value
+    }
+    //% block="set $softBody segment max velocity to $value"
+    //% softBody.shadow=variables_get
+    //% value.defl=80 value.min=0
+    //% group="Modify"
+    export function setSegmentMaxVelocity(softBody: SoftBody, value: number) {
+        softBody.maxSegmentVelocity = Math.max(0, value)
     }
     //% block="destroy $softBody"
     //% softBody.shadow=variables_get
