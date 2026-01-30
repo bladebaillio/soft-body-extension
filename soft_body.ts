@@ -23,6 +23,7 @@ namespace softbody {
         public damping: number = 0.85
         public springStiffness: number = 0.8
         public maxSegmentVelocity: number = 0
+        public maxStretchFactor: number = 0
         public shouldFill: boolean = false
         public fillColor: number = 2
         private createSegmentSprite(templateImage: Image, x: number, y: number): Sprite {
@@ -55,13 +56,42 @@ namespace softbody {
             for (let i = 0; i < this.points.length - 1; i++) {
                 let pointA = this.points[i]
                 let pointB = this.points[i + 1]
+
                 let dx = pointB.x - pointA.x
                 let dy = pointB.y - pointA.y
                 let distance = Math.sqrt(dx * dx + dy * dy)
+                if (distance === 0) continue
+
+                if (this.maxStretchFactor > 0) {
+                    let maxDist = this.segmentLength * this.maxStretchFactor
+                    if (distance > maxDist) {
+                        let excess = distance - maxDist
+                        let nx = dx / distance
+                        let ny = dy / distance
+
+                        if (!this.isFixed[i] && !this.isFixed[i + 1]) {
+                            pointA.x += nx * excess * 0.5
+                            pointA.y += ny * excess * 0.5
+                            pointB.x -= nx * excess * 0.5
+                            pointB.y -= ny * excess * 0.5
+                        } else if (!this.isFixed[i]) {
+                            pointA.x += nx * excess
+                            pointA.y += ny * excess
+                        } else if (!this.isFixed[i + 1]) {
+                            pointB.x -= nx * excess
+                            pointB.y -= ny * excess
+                        }
+
+                        distance = maxDist
+                        dx = pointB.x - pointA.x
+                        dy = pointB.y - pointA.y
+                    }
+                }
                 let diff = this.segmentLength - distance
                 let force = (diff / distance) * this.springStiffness
                 let forceX = dx * force
                 let forceY = dy * force
+
                 if (!this.isFixed[i]) {
                     forces[i].x -= forceX
                     forces[i].y -= forceY
@@ -71,6 +101,7 @@ namespace softbody {
                     forces[i + 1].y += forceY
                 }
             }
+
             for (let i = 0; i < this.points.length; i++) {
                 if (!this.isFixed[i]) {
                     let point = this.points[i]
@@ -78,20 +109,28 @@ namespace softbody {
                     let tempY = point.y
                     let velX = (point.x - this.oldX[i]) * this.damping
                     let velY = (point.y - this.oldY[i]) * this.damping
+
+                    let newX = point.x + velX + forces[i].x
+                    let newY = point.y + velY + forces[i].y
+
+                    if (this.hasGravity) {
+                        newY += this.gravityStrength * dt * dt
+                    }
                     if (this.maxSegmentVelocity > 0) {
-                        let speed = Math.sqrt(velX * velX + velY * velY)
+                        let dx = newX - this.oldX[i]
+                        let dy = newY - this.oldY[i]
+                        let speed = Math.sqrt(dx * dx + dy * dy)
+
                         if (speed > this.maxSegmentVelocity) {
                             let scale = this.maxSegmentVelocity / speed
-                            velX *= scale
-                            velY *= scale
+                            newX = this.oldX[i] + dx * scale
+                            newY = this.oldY[i] + dy * scale
                         }
                     }
 
-                    point.x += velX + forces[i].x
-                    point.y += velY + forces[i].y
-                    if (this.hasGravity) {
-                        point.y += this.gravityStrength * dt * dt
-                    }
+                    point.x = newX
+                    point.y = newY
+
                     this.oldX[i] = tempX
                     this.oldY[i] = tempY
                 }
@@ -267,7 +306,7 @@ namespace softbody {
     export function setSegmentPosition(index: number, softBody: SoftBody, x: number, y: number) {
         softBody.setSegmentPosition(index, x, y)
     }
-    
+
     //% block="get segment $index from $softBody"
     //% softBody.shadow=variables_get
     //% index.defl=0
@@ -595,6 +634,15 @@ namespace softbody {
     export function setSegmentMaxVelocity(softBody: SoftBody, value: number) {
         softBody.maxSegmentVelocity = Math.max(0, value)
     }
+
+    //% block="set $softBody max stretch to $factor"
+    //% softBody.shadow=variables_get
+    //% factor.defl=1.1 factor.min=1 factor.max=2
+    //% group="Modify"
+    export function setMaxStretch(softBody: SoftBody, factor: number) {
+        softBody.maxStretchFactor = Math.max(1, factor)
+    }
+
     //% block="destroy $softBody"
     //% softBody.shadow=variables_get
     //% group="Creation"
