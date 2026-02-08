@@ -433,7 +433,7 @@ namespace softbody {
                 let rightSide: { x: number, y: number }[] = []
                 for (let i = 0; i < softBody.points.length; i++) {
                     let point = softBody.points[i]
-                    let halfWidth = Math.max(2, point.width / 2)
+                    let halfWidth = point.width / 2
                     let dirX = 0
                     let dirY = 0
                     if (i < softBody.points.length - 1 && i > 0) {
@@ -545,7 +545,7 @@ namespace softbody {
                 let rightSide: { x: number, y: number }[] = []
                 for (let i = 0; i < softBody.points.length; i++) {
                     let point = softBody.points[i]
-                    let halfWidth = Math.max(2, point.width / 2)
+                    let halfWidth = point.width / 2
                     let relativeX = point.x - spriteWorldX
                     let relativeY = point.y - spriteWorldY
                     let dirX = 0
