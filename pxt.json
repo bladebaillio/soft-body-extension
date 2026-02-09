@@ -8,7 +8,9 @@
     "files": [
         "main.blocks",
         "main.ts",
-        "soft_body.ts"
+        "soft_body.ts",
+        "images.g.jres",
+        "images.g.ts"
     ],
     "testFiles": [],
     "targetVersions": {

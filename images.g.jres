@@ -1,4 +1,9 @@
 {
+    "image1": {
+        "data": "hwQDAAMAAAAAAAAAAAAAAAAAAAA=",
+        "mimeType": "image/x-mkcd-f4",
+        "displayName": "seg"
+    },
     "*": {
         "mimeType": "image/x-mkcd-f4",
         "dataEncoding": "base64",

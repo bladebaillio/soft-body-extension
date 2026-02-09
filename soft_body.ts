@@ -265,6 +265,66 @@ namespace softbody {
         //% block="down"
         Down
     }
+    //% block="destroy $softBody"
+    //% softBody.shadow=variables_get
+    //% group="Creation"
+    export function destroySoftBody(softBody: SoftBody) {
+        for (let point of softBody.points) {
+            point.destroy()
+        }
+        activeSoftBodies.removeElement(softBody)
+    }
+    //% block="cut $softBody at segment $index"
+    //% softBody.shadow=variables_get
+    //% index.defl=0
+    //% blockSetVariable=newSoftBody
+    //% group="Creation"
+    export function cutSoftBodyAtSegment(
+        softBody: SoftBody,
+        index: number
+    ): SoftBody {
+        let count = softBody.points.length
+
+        if (index < 0 || index >= count - 1) {
+            return null
+        }
+        let templateSprite = softBody.points[index + 1]
+        let newBody = new SoftBody(
+            templateSprite,
+            softBody.segmentLength,
+            0,
+            softBody.hasGravity
+        )
+        newBody.damping = softBody.damping
+        newBody.springStiffness = softBody.springStiffness
+        newBody.gravityStrength = softBody.gravityStrength
+        newBody.maxSegmentVelocity = softBody.maxSegmentVelocity
+        newBody.maxStretchFactor = softBody.maxStretchFactor
+        newBody.shouldDrawLines = softBody.shouldDrawLines
+        newBody.lineColor = softBody.lineColor
+        newBody.shouldFill = softBody.shouldFill
+        newBody.fillColor = softBody.fillColor
+
+        for (let i = index + 1; i < count; i++) {
+            let p = softBody.points[i]
+            newBody.points.push(p)
+            newBody.oldX.push(softBody.oldX[i])
+            newBody.oldY.push(softBody.oldY[i])
+            newBody.isFixed.push(softBody.isFixed[i])
+        }
+
+        let removeCount = count - (index + 1)
+        for (let i = 0; i < removeCount; i++) {
+            softBody.points.pop()
+            softBody.oldX.pop()
+            softBody.oldY.pop()
+            softBody.isFixed.pop()
+        }
+
+        activeSoftBodies.push(newBody)
+        return newBody
+    }
+
     //% block="create soft body from $segment length $length segments $segments gravity $hasGravity"
     //% segment.shadow=variables_get
     //% length.defl=5
@@ -643,15 +703,6 @@ namespace softbody {
         softBody.maxStretchFactor = Math.max(1, factor)
     }
 
-    //% block="destroy $softBody"
-    //% softBody.shadow=variables_get
-    //% group="Creation"
-    export function destroySoftBody(softBody: SoftBody) {
-        for (let point of softBody.points) {
-            point.destroy()
-        }
-        activeSoftBodies.removeElement(softBody)
-    }
     //% block="add $sprite to $softBody"
     //% sprite.shadow=variables_get
     //% softBody.shadow=variables_get
@@ -692,6 +743,77 @@ namespace softbody {
             softBody.oldY[i] += offsetY
         }
     }
+
+    //% block="place $softBody from x $x1 y $y1 to x $x2 y $y2"
+    //% softBody.shadow=variables_get
+    //% x1.defl=20 y1.defl=60
+    //% x2.defl=140 y2.defl=60
+    //% group="Modify"
+    export function placeSoftBodyBetween(
+        softBody: SoftBody,
+        x1: number,
+        y1: number,
+        x2: number,
+        y2: number
+    ) {
+        let count = softBody.points.length
+        if (count <= 1) return
+
+        let steps = count - 1
+        let dx = (x2 - x1) / steps
+        let dy = (y2 - y1) / steps
+
+        for (let i = 0; i < count; i++) {
+            let x = x1 + dx * i
+            let y = y1 + dy * i
+
+            let p = softBody.points[i]
+            p.x = x
+            p.y = y
+
+            softBody.oldX[i] = x
+            softBody.oldY[i] = y
+        }
+    }
+
+    //% block="get segment index of $sprite in $softBody"
+    //% sprite.shadow=variables_get
+    //% softBody.shadow=variables_get
+    //% group="Query"
+    export function getSegmentIndex(
+        sprite: Sprite,
+        softBody: SoftBody
+    ): number {
+        if (!sprite || !softBody) return -1
+
+        let targetId = sprite.id
+        for (let i = 0; i < softBody.points.length; i++) {
+            if (softBody.points[i].id === targetId) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    //% block="get soft body of segment $sprite"
+    //% sprite.shadow=variables_get
+    //% group="Query"
+    export function getSoftBodyFromSegment(sprite: Sprite): SoftBody {
+        if (!sprite) return null
+
+        let targetId = sprite.id
+
+        for (let body of activeSoftBodies) {
+            for (let p of body.points) {
+                if (p.id === targetId) {
+                    return body
+                }
+            }
+        }
+        return null
+    }
+
+
     //% block="set $softBody movement locked to $locked"
     //% softBody.shadow=variables_get
     //% locked.defl=true
@@ -719,6 +841,17 @@ namespace softbody {
     export function getSoftBodySegmentCount(softBody: SoftBody): number {
         return softBody.points.length
     }
+    
+    //% block="get total length of $softBody"
+    //% softBody.shadow=variables_get
+    //% group="Query"
+    export function getSoftBodyLength(softBody: SoftBody): number {
+        let count = softBody.points.length
+        if (count <= 1) return 0
+        return softBody.segmentLength * (count - 1)
+    }
+
+
     //% block="set $softBody segment direction to $direction"
     //% softBody.shadow=variables_get
     //% direction.defl=SegmentDirection.Right
@@ -751,5 +884,3 @@ namespace softbody {
         }
     }
 }
-
-
