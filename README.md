@@ -20,6 +20,10 @@ To edit this repository in MakeCode.
 * click on **Import** then click on **Import URL**
 * paste **https://github.com/bladebaillio/soft-body-extension** and click import
 
+## Custom block documentation
+
+- [Soft-Body Blocks: Basic Usage Guide](docs/basic-blocks-guide.md)
+
 ## Blocks preview
 
 This image shows the blocks code from the last commit in master.
