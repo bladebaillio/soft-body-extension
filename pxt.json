@@ -10,7 +10,8 @@
         "main.ts",
         "soft_body.ts",
         "images.g.jres",
-        "images.g.ts"
+        "images.g.ts",
+        "tutorial-info-cache.json"
     ],
     "testFiles": [],
     "targetVersions": {
