@@ -3,12 +3,7 @@ namespace myImages {
 
     helpers._registerFactory("image", function(name: string) {
         switch(helpers.stringTrim(name)) {
-            case "image1":
-            case "seg":return img`
-. . . 
-. . . 
-. . . 
-`;
+
         }
         return null;
     })
@@ -21,6 +16,13 @@ namespace myImages {
     })
 
     helpers._registerFactory("song", function(name: string) {
+        switch(helpers.stringTrim(name)) {
+
+        }
+        return null;
+    })
+
+    helpers._registerFactory("json", function(name: string) {
         switch(helpers.stringTrim(name)) {
 
         }
