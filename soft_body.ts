@@ -26,13 +26,6 @@ namespace softbody {
         public maxStretchFactor: number = 0
         public shouldFill: boolean = false
         public fillColor: number = 2
-        private createSegmentSprite(templateImage: Image, x: number, y: number): Sprite {
-            let newImage = templateImage.clone()
-            let sprite = sprites.create(newImage)
-            sprite.x = x
-            sprite.y = y
-            return sprite
-        }
         constructor(segment: Sprite, length: number, segments: number, hasGravity: boolean) {
             this.segmentLength = length
             this.hasGravity = hasGravity
@@ -101,6 +94,7 @@ namespace softbody {
                     forces[i + 1].y += forceY
                 }
             }
+            this.applyConnections()
 
             for (let i = 0; i < this.points.length; i++) {
                 if (!this.isFixed[i]) {
@@ -136,6 +130,21 @@ namespace softbody {
                 }
             }
         }
+        private applyConnections() {
+            for (let connection of this.connections) {
+                let thisIndex = connection.thisSegment
+                let otherIndex = connection.otherSegment
+                let otherBody = connection.otherBody
+                if (!isValidSegmentIndex(this, thisIndex) || !isValidSegmentIndex(otherBody, otherIndex)) {
+                    continue
+                }
+                let pointA = this.points[thisIndex]
+                let pointB = otherBody.points[otherIndex]
+                let isFixedA = this.isFixed[thisIndex]
+                let isFixedB = otherBody.isFixed[otherIndex]
+                solveConstraint(pointA, pointB, connection.restLength, isFixedA, isFixedB)
+            }
+        }
         setSegmentGravity(index: number, hasGravity: boolean) {
             if (index >= 0 && index < this.points.length) {
                 this.isFixed[index] = !hasGravity
@@ -153,6 +162,9 @@ namespace softbody {
             }
         }
         static connectSoftBodies(body1: SoftBody, segment1: number, body2: SoftBody, segment2: number) {
+            if (!isValidSegmentIndex(body1, segment1) || !isValidSegmentIndex(body2, segment2)) {
+                return
+            }
             let dx = body2.points[segment2].x - body1.points[segment1].x
             let dy = body2.points[segment2].y - body1.points[segment1].y
             let distance = Math.sqrt(dx * dx + dy * dy)
@@ -170,21 +182,30 @@ namespace softbody {
             })
         }
     }
+    function isValidSegmentIndex(body: SoftBody, index: number): boolean {
+        if (!body) return false
+        return index >= 0 && index < body.points.length
+    }
     function solveConstraint(pointA: Sprite, pointB: Sprite, length: number, isFixedA: boolean, isFixedB: boolean) {
         let dx = pointB.x - pointA.x
         let dy = pointB.y - pointA.y
         let distance = Math.sqrt(dx * dx + dy * dy)
+        if (distance === 0) return
         let diff = length - distance
-        let percent = diff / distance / 2
+        let percent = diff / distance
         let offsetX = dx * percent
         let offsetY = dy * percent
-        if (!isFixedB) {
-            pointB.x += offsetX
-            pointB.y += offsetY
-        }
-        if (!isFixedA) {
+        if (!isFixedA && !isFixedB) {
+            pointA.x -= offsetX * 0.5
+            pointA.y -= offsetY * 0.5
+            pointB.x += offsetX * 0.5
+            pointB.y += offsetY * 0.5
+        } else if (!isFixedA) {
             pointA.x -= offsetX
             pointA.y -= offsetY
+        } else if (!isFixedB) {
+            pointB.x += offsetX
+            pointB.y += offsetY
         }
     }
     function fillTriangle(img: Image, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, color: number) {
@@ -246,13 +267,95 @@ namespace softbody {
             }
         }
     }
-    function drawHorizontalLine(img: Image, x1: number, y: number, x2: number, color: number) {
-        if (y < 0 || y >= img.height) return;
-        if (x1 > x2) [x1, x2] = [x2, x1];
-        x1 = Math.max(0, Math.min(img.width - 1, x1));
-        x2 = Math.max(0, Math.min(img.width - 1, x2));
-        for (let x = x1; x <= x2; x++) {
-            img.setPixel(x, y, color);
+    function buildBodySides(softBody: SoftBody, offsetX: number, offsetY: number, minHalfWidth: number): { leftSide: { x: number, y: number }[], rightSide: { x: number, y: number }[] } {
+        let leftSide: { x: number, y: number }[] = []
+        let rightSide: { x: number, y: number }[] = []
+        for (let i = 0; i < softBody.points.length; i++) {
+            let point = softBody.points[i]
+            let halfWidth = Math.max(minHalfWidth, point.width / 2)
+            let relativeX = point.x - offsetX
+            let relativeY = point.y - offsetY
+            let dirX = 0
+            let dirY = 0
+            if (i < softBody.points.length - 1 && i > 0) {
+                let prevX = softBody.points[i - 1].x - offsetX
+                let prevY = softBody.points[i - 1].y - offsetY
+                let nextX = softBody.points[i + 1].x - offsetX
+                let nextY = softBody.points[i + 1].y - offsetY
+                dirX = nextX - prevX
+                dirY = nextY - prevY
+            } else if (i < softBody.points.length - 1) {
+                dirX = (softBody.points[i + 1].x - offsetX) - relativeX
+                dirY = (softBody.points[i + 1].y - offsetY) - relativeY
+            } else if (i > 0) {
+                dirX = relativeX - (softBody.points[i - 1].x - offsetX)
+                dirY = relativeY - (softBody.points[i - 1].y - offsetY)
+            }
+            let length = Math.sqrt(dirX * dirX + dirY * dirY)
+            if (length > 0) {
+                dirX /= length
+                dirY /= length
+            } else {
+                dirX = 1
+                dirY = 0
+            }
+            let perpX = -dirY
+            let perpY = dirX
+            leftSide.push({
+                x: relativeX + perpX * halfWidth,
+                y: relativeY + perpY * halfWidth
+            })
+            rightSide.push({
+                x: relativeX - perpX * halfWidth,
+                y: relativeY - perpY * halfWidth
+            })
+        }
+        return { leftSide: leftSide, rightSide: rightSide }
+    }
+    function shouldCullQuad(drawTarget: Image, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, x4: number, y4: number): boolean {
+        const maxDistance = 1000
+        const minX = -maxDistance
+        const minY = -maxDistance
+        const maxX = drawTarget.width + maxDistance
+        const maxY = drawTarget.height + maxDistance
+        return (
+            x1 < minX || x1 > maxX || y1 < minY || y1 > maxY ||
+            x2 < minX || x2 > maxX || y2 < minY || y2 > maxY ||
+            x3 < minX || x3 > maxX || y3 < minY || y3 > maxY ||
+            x4 < minX || x4 > maxX || y4 < minY || y4 > maxY
+        )
+    }
+    function drawBodyFill(softBody: SoftBody, drawTarget: Image, offsetX: number, offsetY: number, cullOffscreen: boolean, minHalfWidth: number) {
+        if (!softBody.shouldFill || softBody.points.length <= 1) return
+        let sides = buildBodySides(softBody, offsetX, offsetY, minHalfWidth)
+        let leftSide = sides.leftSide
+        let rightSide = sides.rightSide
+        for (let i = 0; i < softBody.points.length - 1; i++) {
+            let x1 = leftSide[i].x
+            let y1 = leftSide[i].y
+            let x2 = leftSide[i + 1].x
+            let y2 = leftSide[i + 1].y
+            let x3 = rightSide[i + 1].x
+            let y3 = rightSide[i + 1].y
+            let x4 = rightSide[i].x
+            let y4 = rightSide[i].y
+            if (cullOffscreen && shouldCullQuad(drawTarget, x1, y1, x2, y2, x3, y3, x4, y4)) {
+                continue
+            }
+            fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, softBody.fillColor)
+            fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, softBody.fillColor)
+        }
+    }
+    function drawBodyLines(softBody: SoftBody, drawTarget: Image, offsetX: number, offsetY: number, clipToTarget: boolean) {
+        if (!softBody.shouldDrawLines) return
+        for (let i = 0; i < softBody.points.length - 1; i++) {
+            let x1 = softBody.points[i].x - offsetX
+            let y1 = softBody.points[i].y - offsetY
+            let x2 = softBody.points[i + 1].x - offsetX
+            let y2 = softBody.points[i + 1].y - offsetY
+            if (!clipToTarget || isLineInBounds(x1, y1, x2, y2, drawTarget.width, drawTarget.height)) {
+                drawTarget.drawLine(x1, y1, x2, y2, softBody.lineColor)
+            }
         }
     }
     export enum SegmentDirection {
@@ -268,6 +371,7 @@ namespace softbody {
     //% block="destroy $softBody"
     //% softBody.shadow=variables_get
     //% group="Creation"
+    //% help=github:bladebaillio/soft-body-extension/docs/creation
     export function destroySoftBody(softBody: SoftBody) {
         for (let point of softBody.points) {
             point.destroy()
@@ -279,10 +383,11 @@ namespace softbody {
     //% index.defl=0
     //% blockSetVariable=newSoftBody
     //% group="Creation"
+    //% help=github:bladebaillio/soft-body-extension/docs/creation
     export function cutSoftBodyAtSegment(
         softBody: SoftBody,
         index: number
-    ): SoftBody {
+    ): SoftBody | null {
         let count = softBody.points.length
 
         if (index < 0 || index >= count - 1) {
@@ -332,6 +437,7 @@ namespace softbody {
     //% hasGravity.defl=true
     //% blockSetVariable=mySoftBody
     //% group="Creation"
+    //% help=github:bladebaillio/soft-body-extension/docs/creation
     export function createSoftBody(segment: Sprite, length: number, segments: number, hasGravity: boolean): SoftBody {
         let body = new SoftBody(segment, length, segments, hasGravity)
         activeSoftBodies.push(body)
@@ -342,12 +448,14 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% hasGravity.defl=true
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setSegmentGravity(index: number, softBody: SoftBody, hasGravity: boolean) {
         softBody.setSegmentGravity(index, hasGravity)
     }
     //% block="update $softBody"
     //% softBody.shadow=variables_get
     //% group="Update"
+    //% help=github:bladebaillio/soft-body-extension/docs/update
     export function updateSoftBody(softBody: SoftBody) {
         softBody.update()
     }
@@ -355,6 +463,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% strength.defl=400
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setGravityStrength(softBody: SoftBody, strength: number) {
         softBody.setGravityStrength(strength)
     }
@@ -363,6 +472,7 @@ namespace softbody {
     //% index.defl=0
     //% x.defl=80 y.defl=60
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setSegmentPosition(index: number, softBody: SoftBody, x: number, y: number) {
         softBody.setSegmentPosition(index, x, y)
     }
@@ -371,6 +481,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% index.defl=0
     //% group="Query"
+    //% help=github:bladebaillio/soft-body-extension/docs/query
     export function getSegment(index: number, softBody: SoftBody): Sprite {
         return softBody.points[index]
     }
@@ -378,6 +489,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% color.defl=1
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setLineColor(softBody: SoftBody, color: number) {
         softBody.lineColor = color
         softBody.shouldDrawLines = true
@@ -386,6 +498,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% color.defl=2
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setFillBetweenSegments(softBody: SoftBody, color: number) {
         softBody.fillColor = color
         softBody.shouldFill = true
@@ -394,90 +507,14 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% drawTarget.shadow=variables_get
     //% group="Update"
+    //% help=github:bladebaillio/soft-body-extension/docs/update
     export function renderSoftBody(softBody: SoftBody, drawTarget: Image) {
-        if (softBody.shouldFill && softBody.points.length > 1) {
-            let leftSide: { x: number, y: number }[] = []
-            let rightSide: { x: number, y: number }[] = []
-            for (let i = 0; i < softBody.points.length; i++) {
-                let point = softBody.points[i]
-                let halfWidth = Math.max(2, point.width / 2)
-                let dirX = 0
-                let dirY = 0
-                if (i < softBody.points.length - 1 && i > 0) {
-                    let prevX = softBody.points[i - 1].x
-                    let prevY = softBody.points[i - 1].y
-                    let nextX = softBody.points[i + 1].x
-                    let nextY = softBody.points[i + 1].y
-                    dirX = nextX - prevX
-                    dirY = nextY - prevY
-                } else if (i < softBody.points.length - 1) {
-                    dirX = softBody.points[i + 1].x - point.x
-                    dirY = softBody.points[i + 1].y - point.y
-                } else if (i > 0) {
-                    dirX = point.x - softBody.points[i - 1].x
-                    dirY = point.y - softBody.points[i - 1].y
-                }
-                let length = Math.sqrt(dirX * dirX + dirY * dirY)
-                if (length > 0) {
-                    dirX /= length
-                    dirY /= length
-                } else {
-                    dirX = 1
-                    dirY = 0
-                }
-                let perpX = -dirY
-                let perpY = dirX
-                leftSide.push({
-                    x: point.x + perpX * halfWidth,
-                    y: point.y + perpY * halfWidth
-                })
-                rightSide.push({
-                    x: point.x - perpX * halfWidth,
-                    y: point.y - perpY * halfWidth
-                })
-            }
-            for (let i = 0; i < softBody.points.length - 1; i++) {
-                let x1 = leftSide[i].x
-                let y1 = leftSide[i].y
-                let x2 = leftSide[i + 1].x
-                let y2 = leftSide[i + 1].y
-                let x3 = rightSide[i + 1].x
-                let y3 = rightSide[i + 1].y
-                let x4 = rightSide[i].x
-                let y4 = rightSide[i].y
-                const maxDistance = 1000
-                const screenBounds = {
-                    minX: -maxDistance,
-                    minY: -maxDistance,
-                    maxX: drawTarget.width + maxDistance,
-                    maxY: drawTarget.height + maxDistance
-                }
-                if (
-                    x1 < screenBounds.minX || x1 > screenBounds.maxX || y1 < screenBounds.minY || y1 > screenBounds.maxY ||
-                    x2 < screenBounds.minX || x2 > screenBounds.maxX || y2 < screenBounds.minY || y2 > screenBounds.maxY ||
-                    x3 < screenBounds.minX || x3 > screenBounds.maxX || y3 < screenBounds.minY || y3 > screenBounds.maxY ||
-                    x4 < screenBounds.minX || x4 > screenBounds.maxX || y4 < screenBounds.minY || y4 > screenBounds.maxY
-                ) {
-                    continue
-                }
-                fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, softBody.fillColor)
-                fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, softBody.fillColor)
-            }
-        }
-        if (softBody.shouldDrawLines) {
-            for (let i = 0; i < softBody.points.length - 1; i++) {
-                drawTarget.drawLine(
-                    softBody.points[i].x,
-                    softBody.points[i].y,
-                    softBody.points[i + 1].x,
-                    softBody.points[i + 1].y,
-                    softBody.lineColor
-                )
-            }
-        }
+        drawBodyFill(softBody, drawTarget, 0, 0, true, 2)
+        drawBodyLines(softBody, drawTarget, 0, 0, false)
     }
     //% block="update all visible soft bodies"
     //% group="Update"
+    //% help=github:bladebaillio/soft-body-extension/docs/update
     export function updateAllVisibleSoftBodies() {
         for (let softBody of activeSoftBodies) {
             softBody.update()
@@ -486,113 +523,27 @@ namespace softbody {
     //% block="render all visible soft bodies on $drawTarget"
     //% drawTarget.shadow=variables_get
     //% group="Update"
+    //% help=github:bladebaillio/soft-body-extension/docs/update
     export function renderAllVisibleSoftBodies(drawTarget: Image) {
         for (let softBody of activeSoftBodies) {
-            if (softBody.shouldFill && softBody.points.length > 1) {
-                let leftSide: { x: number, y: number }[] = []
-                let rightSide: { x: number, y: number }[] = []
-                for (let i = 0; i < softBody.points.length; i++) {
-                    let point = softBody.points[i]
-                    let halfWidth = point.width / 2
-                    let dirX = 0
-                    let dirY = 0
-                    if (i < softBody.points.length - 1 && i > 0) {
-                        let prevX = softBody.points[i - 1].x
-                        let prevY = softBody.points[i - 1].y
-                        let nextX = softBody.points[i + 1].x
-                        let nextY = softBody.points[i + 1].y
-                        dirX = nextX - prevX
-                        dirY = nextY - prevY
-                    } else if (i < softBody.points.length - 1) {
-                        dirX = softBody.points[i + 1].x - point.x
-                        dirY = softBody.points[i + 1].y - point.y
-                    } else if (i > 0) {
-                        dirX = point.x - softBody.points[i - 1].x
-                        dirY = point.y - softBody.points[i - 1].y
-                    }
-                    let length = Math.sqrt(dirX * dirX + dirY * dirY)
-                    if (length > 0) {
-                        dirX /= length
-                        dirY /= length
-                    } else {
-                        dirX = 1
-                        dirY = 0
-                    }
-                    let perpX = -dirY
-                    let perpY = dirX
-                    leftSide.push({
-                        x: point.x + perpX * halfWidth,
-                        y: point.y + perpY * halfWidth
-                    })
-                    rightSide.push({
-                        x: point.x - perpX * halfWidth,
-                        y: point.y - perpY * halfWidth
-                    })
-                }
-                for (let i = 0; i < softBody.points.length - 1; i++) {
-                    let x1 = leftSide[i].x
-                    let y1 = leftSide[i].y
-                    let x2 = leftSide[i + 1].x
-                    let y2 = leftSide[i + 1].y
-                    let x3 = rightSide[i + 1].x
-                    let y3 = rightSide[i + 1].y
-                    let x4 = rightSide[i].x
-                    let y4 = rightSide[i].y
-                    const maxDistance = 1000
-                    const screenBounds = {
-                        minX: -maxDistance,
-                        minY: -maxDistance,
-                        maxX: drawTarget.width + maxDistance,
-                        maxY: drawTarget.height + maxDistance
-                    }
-                    if (
-                        x1 < screenBounds.minX || x1 > screenBounds.maxX || y1 < screenBounds.minY || y1 > screenBounds.maxY ||
-                        x2 < screenBounds.minX || x2 > screenBounds.maxX || y2 < screenBounds.minY || y2 > screenBounds.maxY ||
-                        x3 < screenBounds.minX || x3 > screenBounds.maxX || y3 < screenBounds.minY || y3 > screenBounds.maxY ||
-                        x4 < screenBounds.minX || x4 > screenBounds.maxX || y4 < screenBounds.minY || y4 > screenBounds.maxY
-                    ) {
-                        continue
-                    }
-                    fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, softBody.fillColor)
-                    fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, softBody.fillColor)
-                }
-            }
-            if (softBody.shouldDrawLines) {
-                for (let i = 0; i < softBody.points.length - 1; i++) {
-                    drawTarget.drawLine(
-                        softBody.points[i].x,
-                        softBody.points[i].y,
-                        softBody.points[i + 1].x,
-                        softBody.points[i + 1].y,
-                        softBody.lineColor
-                    )
-                }
-            }
+            drawBodyFill(softBody, drawTarget, 0, 0, true, 0)
+            drawBodyLines(softBody, drawTarget, 0, 0, false)
         }
     }
     //% block="render soft body $softBody on sprite $targetSprite"
     //% softBody.shadow=variables_get
     //% targetSprite.shadow=variables_get
     //% group="Update"
+    //% help=github:bladebaillio/soft-body-extension/docs/update
     export function renderSoftBodyOnSprite(softBody: SoftBody, targetSprite: Sprite) {
-        let drawTarget = targetSprite.image
-        let spriteX = targetSprite.x - targetSprite.image.width / 2
-        let spriteY = targetSprite.y - targetSprite.image.height / 2
-        if (softBody.shouldDrawLines) {
-            for (let i = 0; i < softBody.points.length - 1; i++) {
-                let x1 = softBody.points[i].x - spriteX
-                let y1 = softBody.points[i].y - spriteY
-                let x2 = softBody.points[i + 1].x - spriteX
-                let y2 = softBody.points[i + 1].y - spriteY
-                if (isLineInBounds(x1, y1, x2, y2, drawTarget.width, drawTarget.height)) {
-                    drawTarget.drawLine(x1, y1, x2, y2, softBody.lineColor)
-                }
-            }
-        }
+        let offsetX = targetSprite.x - targetSprite.image.width / 2
+        let offsetY = targetSprite.y - targetSprite.image.height / 2
+        drawBodyLines(softBody, targetSprite.image, offsetX, offsetY, true)
     }
     //% block="render all visible soft bodies on sprite $targetSprite"
     //% targetSprite.shadow=variables_get
     //% group="Update"
+    //% help=github:bladebaillio/soft-body-extension/docs/update
     export function renderAllVisibleSoftBodiesOnSprite(targetSprite: Sprite) {
         let drawTarget = targetSprite.image
         let cameraX = scene.cameraProperty(CameraProperty.X)
@@ -600,73 +551,8 @@ namespace softbody {
         let spriteWorldX = cameraX - targetSprite.image.width / 2
         let spriteWorldY = cameraY - targetSprite.image.height / 2
         for (let softBody of activeSoftBodies) {
-            if (softBody.shouldFill && softBody.points.length > 1) {
-                let leftSide: { x: number, y: number }[] = []
-                let rightSide: { x: number, y: number }[] = []
-                for (let i = 0; i < softBody.points.length; i++) {
-                    let point = softBody.points[i]
-                    let halfWidth = point.width / 2
-                    let relativeX = point.x - spriteWorldX
-                    let relativeY = point.y - spriteWorldY
-                    let dirX = 0
-                    let dirY = 0
-                    if (i < softBody.points.length - 1 && i > 0) {
-                        let prevX = softBody.points[i - 1].x - spriteWorldX
-                        let prevY = softBody.points[i - 1].y - spriteWorldY
-                        let nextX = softBody.points[i + 1].x - spriteWorldX
-                        let nextY = softBody.points[i + 1].y - spriteWorldY
-                        dirX = nextX - prevX
-                        dirY = nextY - prevY
-                    } else if (i < softBody.points.length - 1) {
-                        dirX = (softBody.points[i + 1].x - spriteWorldX) - relativeX
-                        dirY = (softBody.points[i + 1].y - spriteWorldY) - relativeY
-                    } else if (i > 0) {
-                        dirX = relativeX - (softBody.points[i - 1].x - spriteWorldX)
-                        dirY = relativeY - (softBody.points[i - 1].y - spriteWorldY)
-                    }
-                    let length = Math.sqrt(dirX * dirX + dirY * dirY)
-                    if (length > 0) {
-                        dirX /= length
-                        dirY /= length
-                    } else {
-                        dirX = 1
-                        dirY = 0
-                    }
-                    let perpX = -dirY
-                    let perpY = dirX
-                    leftSide.push({
-                        x: relativeX + perpX * halfWidth,
-                        y: relativeY + perpY * halfWidth
-                    })
-                    rightSide.push({
-                        x: relativeX - perpX * halfWidth,
-                        y: relativeY - perpY * halfWidth
-                    })
-                }
-                for (let i = 0; i < softBody.points.length - 1; i++) {
-                    let x1 = leftSide[i].x
-                    let y1 = leftSide[i].y
-                    let x2 = leftSide[i + 1].x
-                    let y2 = leftSide[i + 1].y
-                    let x3 = rightSide[i + 1].x
-                    let y3 = rightSide[i + 1].y
-                    let x4 = rightSide[i].x
-                    let y4 = rightSide[i].y
-                    fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, softBody.fillColor)
-                    fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, softBody.fillColor)
-                }
-            }
-            if (softBody.shouldDrawLines) {
-                for (let i = 0; i < softBody.points.length - 1; i++) {
-                    let x1 = softBody.points[i].x - spriteWorldX
-                    let y1 = softBody.points[i].y - spriteWorldY
-                    let x2 = softBody.points[i + 1].x - spriteWorldX
-                    let y2 = softBody.points[i + 1].y - spriteWorldY
-                    if (isLineInBounds(x1, y1, x2, y2, drawTarget.width, drawTarget.height)) {
-                        drawTarget.drawLine(x1, y1, x2, y2, softBody.lineColor)
-                    }
-                }
-            }
+            drawBodyFill(softBody, drawTarget, spriteWorldX, spriteWorldY, false, 0)
+            drawBodyLines(softBody, drawTarget, spriteWorldX, spriteWorldY, true)
         }
     }
     function isLineInBounds(x1: number, y1: number, x2: number, y2: number, width: number, height: number): boolean {
@@ -677,6 +563,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% value.defl=0.98 value.min=0 value.max=1
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setDamping(softBody: SoftBody, value: number) {
         softBody.damping = value
     }
@@ -684,6 +571,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% value.defl=0.8 value.min=0 value.max=2
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setSpringStiffness(softBody: SoftBody, value: number) {
         softBody.springStiffness = value
     }
@@ -691,6 +579,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% value.defl=80 value.min=0
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setSegmentMaxVelocity(softBody: SoftBody, value: number) {
         softBody.maxSegmentVelocity = Math.max(0, value)
     }
@@ -699,6 +588,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% factor.defl=1.1 factor.min=1 factor.max=2
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setMaxStretch(softBody: SoftBody, factor: number) {
         softBody.maxStretchFactor = Math.max(1, factor)
     }
@@ -707,7 +597,15 @@ namespace softbody {
     //% sprite.shadow=variables_get
     //% softBody.shadow=variables_get
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function addSegmentToSoftBody(sprite: Sprite, softBody: SoftBody) {
+        if (softBody.points.length === 0) {
+            softBody.points.push(sprite)
+            softBody.oldX.push(sprite.x)
+            softBody.oldY.push(sprite.y)
+            softBody.isFixed.push(false)
+            return
+        }
         let lastPoint = softBody.points[softBody.points.length - 1]
         sprite.x = lastPoint.x + softBody.segmentLength
         sprite.y = lastPoint.y
@@ -720,6 +618,7 @@ namespace softbody {
     //% index.defl=0
     //% softBody.shadow=variables_get
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function removeSegmentFromSoftBody(index: number, softBody: SoftBody) {
         if (index >= 0 && index < softBody.points.length) {
             softBody.points[index].destroy()
@@ -733,7 +632,9 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% x.defl=80 y.defl=60
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function placeSoftBody(softBody: SoftBody, x: number, y: number) {
+        if (softBody.points.length === 0) return
         let offsetX = x - softBody.points[0].x
         let offsetY = y - softBody.points[0].y
         for (let i = 0; i < softBody.points.length; i++) {
@@ -749,6 +650,7 @@ namespace softbody {
     //% x1.defl=20 y1.defl=60
     //% x2.defl=140 y2.defl=60
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function placeSoftBodyBetween(
         softBody: SoftBody,
         x1: number,
@@ -780,6 +682,7 @@ namespace softbody {
     //% sprite.shadow=variables_get
     //% softBody.shadow=variables_get
     //% group="Query"
+    //% help=github:bladebaillio/soft-body-extension/docs/query
     export function getSegmentIndex(
         sprite: Sprite,
         softBody: SoftBody
@@ -798,7 +701,8 @@ namespace softbody {
     //% block="get soft body of segment $sprite"
     //% sprite.shadow=variables_get
     //% group="Query"
-    export function getSoftBodyFromSegment(sprite: Sprite): SoftBody {
+    //% help=github:bladebaillio/soft-body-extension/docs/query
+    export function getSoftBodyFromSegment(sprite: Sprite): SoftBody | null {
         if (!sprite) return null
 
         let targetId = sprite.id
@@ -818,6 +722,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% locked.defl=true
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setSoftBodyLocked(softBody: SoftBody, locked: boolean) {
         for (let i = 0; i < softBody.points.length; i++) {
             softBody.isFixed[i] = locked
@@ -827,6 +732,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% index.defl=0
     //% group="Query"
+    //% help=github:bladebaillio/soft-body-extension/docs/query
     export function getSegmentAngle(index: number, softBody: SoftBody): number {
         if (index >= softBody.points.length - 1) return 0
         let current = softBody.points[index]
@@ -838,13 +744,15 @@ namespace softbody {
     //% block="get $softBody segment count"
     //% softBody.shadow=variables_get
     //% group="Query"
+    //% help=github:bladebaillio/soft-body-extension/docs/query
     export function getSoftBodySegmentCount(softBody: SoftBody): number {
         return softBody.points.length
     }
-    
+
     //% block="get total length of $softBody"
     //% softBody.shadow=variables_get
     //% group="Query"
+    //% help=github:bladebaillio/soft-body-extension/docs/query
     export function getSoftBodyLength(softBody: SoftBody): number {
         let count = softBody.points.length
         if (count <= 1) return 0
@@ -856,6 +764,7 @@ namespace softbody {
     //% softBody.shadow=variables_get
     //% direction.defl=SegmentDirection.Right
     //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setSegmentDirection(softBody: SoftBody, direction: SegmentDirection) {
         let lastPoint = softBody.points[0]
         for (let i = 1; i < softBody.points.length; i++) {
@@ -884,3 +793,4 @@ namespace softbody {
         }
     }
 }
+
