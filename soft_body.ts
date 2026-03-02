@@ -4,6 +4,8 @@ namespace softbody {
     let activeSoftBodies: SoftBody[] = []
     export class SoftBody {
         public points: Sprite[] = []
+        public simX: number[] = []
+        public simY: number[] = []
         public oldX: number[] = []
         public oldY: number[] = []
         public segmentLength: number
@@ -35,6 +37,8 @@ namespace softbody {
                 let newSprite = sprites.create(templateImage.clone())
                 newSprite.setPosition(segment.x + (i * length), segment.y)
                 this.points.push(newSprite)
+                this.simX.push(newSprite.x)
+                this.simY.push(newSprite.y)
                 this.oldX.push(newSprite.x)
                 this.oldY.push(newSprite.y)
                 this.isFixed.push(false)
@@ -45,13 +49,22 @@ namespace softbody {
             let forces: { x: number, y: number }[] = []
             for (let i = 0; i < this.points.length; i++) {
                 forces.push({ x: 0, y: 0 })
+                // External code may move segment sprites directly; treat that as authoritative.
+                // Ignore tiny differences caused by sprite position quantization.
+                let externalDx = this.points[i].x - this.simX[i]
+                let externalDy = this.points[i].y - this.simY[i]
+                if (Math.abs(externalDx) > 0.75 || Math.abs(externalDy) > 0.75) {
+                    this.simX[i] = this.points[i].x
+                    this.simY[i] = this.points[i].y
+                    if (this.isFixed[i]) {
+                        this.oldX[i] = this.simX[i]
+                        this.oldY[i] = this.simY[i]
+                    }
+                }
             }
             for (let i = 0; i < this.points.length - 1; i++) {
-                let pointA = this.points[i]
-                let pointB = this.points[i + 1]
-
-                let dx = pointB.x - pointA.x
-                let dy = pointB.y - pointA.y
+                let dx = this.simX[i + 1] - this.simX[i]
+                let dy = this.simY[i + 1] - this.simY[i]
                 let distance = Math.sqrt(dx * dx + dy * dy)
                 if (distance === 0) continue
 
@@ -63,21 +76,21 @@ namespace softbody {
                         let ny = dy / distance
 
                         if (!this.isFixed[i] && !this.isFixed[i + 1]) {
-                            pointA.x += nx * excess * 0.5
-                            pointA.y += ny * excess * 0.5
-                            pointB.x -= nx * excess * 0.5
-                            pointB.y -= ny * excess * 0.5
+                            this.simX[i] += nx * excess * 0.5
+                            this.simY[i] += ny * excess * 0.5
+                            this.simX[i + 1] -= nx * excess * 0.5
+                            this.simY[i + 1] -= ny * excess * 0.5
                         } else if (!this.isFixed[i]) {
-                            pointA.x += nx * excess
-                            pointA.y += ny * excess
+                            this.simX[i] += nx * excess
+                            this.simY[i] += ny * excess
                         } else if (!this.isFixed[i + 1]) {
-                            pointB.x -= nx * excess
-                            pointB.y -= ny * excess
+                            this.simX[i + 1] -= nx * excess
+                            this.simY[i + 1] -= ny * excess
                         }
 
                         distance = maxDist
-                        dx = pointB.x - pointA.x
-                        dy = pointB.y - pointA.y
+                        dx = this.simX[i + 1] - this.simX[i]
+                        dy = this.simY[i + 1] - this.simY[i]
                     }
                 }
                 let diff = this.segmentLength - distance
@@ -98,14 +111,13 @@ namespace softbody {
 
             for (let i = 0; i < this.points.length; i++) {
                 if (!this.isFixed[i]) {
-                    let point = this.points[i]
-                    let tempX = point.x
-                    let tempY = point.y
-                    let velX = (point.x - this.oldX[i]) * this.damping
-                    let velY = (point.y - this.oldY[i]) * this.damping
+                    let tempX = this.simX[i]
+                    let tempY = this.simY[i]
+                    let velX = (this.simX[i] - this.oldX[i]) * this.damping
+                    let velY = (this.simY[i] - this.oldY[i]) * this.damping
 
-                    let newX = point.x + velX + forces[i].x
-                    let newY = point.y + velY + forces[i].y
+                    let newX = this.simX[i] + velX + forces[i].x
+                    let newY = this.simY[i] + velY + forces[i].y
 
                     if (this.hasGravity) {
                         newY += this.gravityStrength * dt * dt
@@ -122,12 +134,18 @@ namespace softbody {
                         }
                     }
 
-                    point.x = newX
-                    point.y = newY
+                    this.simX[i] = newX
+                    this.simY[i] = newY
 
                     this.oldX[i] = tempX
                     this.oldY[i] = tempY
+                } else {
+                    // Keep verlet history in sync for pinned points that may be moved externally.
+                    this.oldX[i] = this.simX[i]
+                    this.oldY[i] = this.simY[i]
                 }
+                this.points[i].x = this.simX[i]
+                this.points[i].y = this.simY[i]
             }
         }
         private applyConnections() {
@@ -138,11 +156,34 @@ namespace softbody {
                 if (!isValidSegmentIndex(this, thisIndex) || !isValidSegmentIndex(otherBody, otherIndex)) {
                     continue
                 }
-                let pointA = this.points[thisIndex]
-                let pointB = otherBody.points[otherIndex]
+                let ax = this.simX[thisIndex]
+                let ay = this.simY[thisIndex]
+                let bx = otherBody.simX[otherIndex]
+                let by = otherBody.simY[otherIndex]
+                let dx = bx - ax
+                let dy = by - ay
+                let distance = Math.sqrt(dx * dx + dy * dy)
+                if (distance === 0) continue
+
+                let diff = connection.restLength - distance
+                let percent = diff / distance
+                let offsetX = dx * percent
+                let offsetY = dy * percent
+
                 let isFixedA = this.isFixed[thisIndex]
                 let isFixedB = otherBody.isFixed[otherIndex]
-                solveConstraint(pointA, pointB, connection.restLength, isFixedA, isFixedB)
+                if (!isFixedA && !isFixedB) {
+                    this.simX[thisIndex] -= offsetX * 0.5
+                    this.simY[thisIndex] -= offsetY * 0.5
+                    otherBody.simX[otherIndex] += offsetX * 0.5
+                    otherBody.simY[otherIndex] += offsetY * 0.5
+                } else if (!isFixedA) {
+                    this.simX[thisIndex] -= offsetX
+                    this.simY[thisIndex] -= offsetY
+                } else if (!isFixedB) {
+                    otherBody.simX[otherIndex] += offsetX
+                    otherBody.simY[otherIndex] += offsetY
+                }
             }
         }
         setSegmentGravity(index: number, hasGravity: boolean) {
@@ -157,6 +198,8 @@ namespace softbody {
             if (index >= 0 && index < this.points.length) {
                 this.points[index].x = x
                 this.points[index].y = y
+                this.simX[index] = x
+                this.simY[index] = y
                 this.oldX[index] = x
                 this.oldY[index] = y
             }
@@ -165,8 +208,8 @@ namespace softbody {
             if (!isValidSegmentIndex(body1, segment1) || !isValidSegmentIndex(body2, segment2)) {
                 return
             }
-            let dx = body2.points[segment2].x - body1.points[segment1].x
-            let dy = body2.points[segment2].y - body1.points[segment1].y
+            let dx = body2.simX[segment2] - body1.simX[segment1]
+            let dy = body2.simY[segment2] - body1.simY[segment1]
             let distance = Math.sqrt(dx * dx + dy * dy)
             body1.connections.push({
                 otherBody: body2,
@@ -185,28 +228,6 @@ namespace softbody {
     function isValidSegmentIndex(body: SoftBody, index: number): boolean {
         if (!body) return false
         return index >= 0 && index < body.points.length
-    }
-    function solveConstraint(pointA: Sprite, pointB: Sprite, length: number, isFixedA: boolean, isFixedB: boolean) {
-        let dx = pointB.x - pointA.x
-        let dy = pointB.y - pointA.y
-        let distance = Math.sqrt(dx * dx + dy * dy)
-        if (distance === 0) return
-        let diff = length - distance
-        let percent = diff / distance
-        let offsetX = dx * percent
-        let offsetY = dy * percent
-        if (!isFixedA && !isFixedB) {
-            pointA.x -= offsetX * 0.5
-            pointA.y -= offsetY * 0.5
-            pointB.x += offsetX * 0.5
-            pointB.y += offsetY * 0.5
-        } else if (!isFixedA) {
-            pointA.x -= offsetX
-            pointA.y -= offsetY
-        } else if (!isFixedB) {
-            pointB.x += offsetX
-            pointB.y += offsetY
-        }
     }
     function fillTriangle(img: Image, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, color: number) {
         x1 = Math.round(x1)
@@ -413,6 +434,8 @@ namespace softbody {
         for (let i = index + 1; i < count; i++) {
             let p = softBody.points[i]
             newBody.points.push(p)
+            newBody.simX.push(softBody.simX[i])
+            newBody.simY.push(softBody.simY[i])
             newBody.oldX.push(softBody.oldX[i])
             newBody.oldY.push(softBody.oldY[i])
             newBody.isFixed.push(softBody.isFixed[i])
@@ -421,6 +444,8 @@ namespace softbody {
         let removeCount = count - (index + 1)
         for (let i = 0; i < removeCount; i++) {
             softBody.points.pop()
+            softBody.simX.pop()
+            softBody.simY.pop()
             softBody.oldX.pop()
             softBody.oldY.pop()
             softBody.isFixed.pop()
@@ -546,10 +571,8 @@ namespace softbody {
     //% help=github:bladebaillio/soft-body-extension/docs/update
     export function renderAllVisibleSoftBodiesOnSprite(targetSprite: Sprite) {
         let drawTarget = targetSprite.image
-        let cameraX = scene.cameraProperty(CameraProperty.X)
-        let cameraY = scene.cameraProperty(CameraProperty.Y)
-        let spriteWorldX = cameraX - targetSprite.image.width / 2
-        let spriteWorldY = cameraY - targetSprite.image.height / 2
+        let spriteWorldX = targetSprite.x - targetSprite.image.width / 2
+        let spriteWorldY = targetSprite.y - targetSprite.image.height / 2
         for (let softBody of activeSoftBodies) {
             drawBodyFill(softBody, drawTarget, spriteWorldX, spriteWorldY, false, 0)
             drawBodyLines(softBody, drawTarget, spriteWorldX, spriteWorldY, true)
@@ -601,6 +624,8 @@ namespace softbody {
     export function addSegmentToSoftBody(sprite: Sprite, softBody: SoftBody) {
         if (softBody.points.length === 0) {
             softBody.points.push(sprite)
+            softBody.simX.push(sprite.x)
+            softBody.simY.push(sprite.y)
             softBody.oldX.push(sprite.x)
             softBody.oldY.push(sprite.y)
             softBody.isFixed.push(false)
@@ -610,6 +635,8 @@ namespace softbody {
         sprite.x = lastPoint.x + softBody.segmentLength
         sprite.y = lastPoint.y
         softBody.points.push(sprite)
+        softBody.simX.push(sprite.x)
+        softBody.simY.push(sprite.y)
         softBody.oldX.push(sprite.x)
         softBody.oldY.push(sprite.y)
         softBody.isFixed.push(false)
@@ -623,6 +650,8 @@ namespace softbody {
         if (index >= 0 && index < softBody.points.length) {
             softBody.points[index].destroy()
             softBody.points.removeAt(index)
+            softBody.simX.removeAt(index)
+            softBody.simY.removeAt(index)
             softBody.oldX.removeAt(index)
             softBody.oldY.removeAt(index)
             softBody.isFixed.removeAt(index)
@@ -635,11 +664,13 @@ namespace softbody {
     //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function placeSoftBody(softBody: SoftBody, x: number, y: number) {
         if (softBody.points.length === 0) return
-        let offsetX = x - softBody.points[0].x
-        let offsetY = y - softBody.points[0].y
+        let offsetX = x - softBody.simX[0]
+        let offsetY = y - softBody.simY[0]
         for (let i = 0; i < softBody.points.length; i++) {
-            softBody.points[i].x += offsetX
-            softBody.points[i].y += offsetY
+            softBody.simX[i] += offsetX
+            softBody.simY[i] += offsetY
+            softBody.points[i].x = softBody.simX[i]
+            softBody.points[i].y = softBody.simY[i]
             softBody.oldX[i] += offsetX
             softBody.oldY[i] += offsetY
         }
@@ -670,8 +701,10 @@ namespace softbody {
             let y = y1 + dy * i
 
             let p = softBody.points[i]
-            p.x = x
-            p.y = y
+            softBody.simX[i] = x
+            softBody.simY[i] = y
+            p.x = softBody.simX[i]
+            p.y = softBody.simY[i]
 
             softBody.oldX[i] = x
             softBody.oldY[i] = y
@@ -766,30 +799,30 @@ namespace softbody {
     //% group="Modify"
     //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setSegmentDirection(softBody: SoftBody, direction: SegmentDirection) {
-        let lastPoint = softBody.points[0]
         for (let i = 1; i < softBody.points.length; i++) {
             let point = softBody.points[i]
             switch (direction) {
                 case SegmentDirection.Right:
-                    point.x = lastPoint.x + softBody.segmentLength
-                    point.y = lastPoint.y
+                    softBody.simX[i] = softBody.simX[i - 1] + softBody.segmentLength
+                    softBody.simY[i] = softBody.simY[i - 1]
                     break
                 case SegmentDirection.Left:
-                    point.x = lastPoint.x - softBody.segmentLength
-                    point.y = lastPoint.y
+                    softBody.simX[i] = softBody.simX[i - 1] - softBody.segmentLength
+                    softBody.simY[i] = softBody.simY[i - 1]
                     break
                 case SegmentDirection.Up:
-                    point.x = lastPoint.x
-                    point.y = lastPoint.y - softBody.segmentLength
+                    softBody.simX[i] = softBody.simX[i - 1]
+                    softBody.simY[i] = softBody.simY[i - 1] - softBody.segmentLength
                     break
                 case SegmentDirection.Down:
-                    point.x = lastPoint.x
-                    point.y = lastPoint.y + softBody.segmentLength
+                    softBody.simX[i] = softBody.simX[i - 1]
+                    softBody.simY[i] = softBody.simY[i - 1] + softBody.segmentLength
                     break
             }
-            softBody.oldX[i] = point.x
-            softBody.oldY[i] = point.y
-            lastPoint = point
+            point.x = softBody.simX[i]
+            point.y = softBody.simY[i]
+            softBody.oldX[i] = softBody.simX[i]
+            softBody.oldY[i] = softBody.simY[i]
         }
     }
 }
