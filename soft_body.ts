@@ -28,6 +28,7 @@ namespace softbody {
         public maxStretchFactor: number = 0
         public shouldFill: boolean = false
         public fillColor: number = 2
+        public segmentFillColors: number[] = []
         constructor(segment: Sprite, length: number, segments: number, hasGravity: boolean) {
             this.segmentLength = length
             this.hasGravity = hasGravity
@@ -42,6 +43,7 @@ namespace softbody {
                 this.oldX.push(newSprite.x)
                 this.oldY.push(newSprite.y)
                 this.isFixed.push(false)
+                this.segmentFillColors.push(this.fillColor)
             }
         }
         update() {
@@ -49,8 +51,6 @@ namespace softbody {
             let forces: { x: number, y: number }[] = []
             for (let i = 0; i < this.points.length; i++) {
                 forces.push({ x: 0, y: 0 })
-                // External code may move segment sprites directly; treat that as authoritative.
-                // Ignore tiny differences caused by sprite position quantization.
                 let externalDx = this.points[i].x - this.simX[i]
                 let externalDy = this.points[i].y - this.simY[i]
                 if (Math.abs(externalDx) > 0.75 || Math.abs(externalDy) > 0.75) {
@@ -140,7 +140,6 @@ namespace softbody {
                     this.oldX[i] = tempX
                     this.oldY[i] = tempY
                 } else {
-                    // Keep verlet history in sync for pinned points that may be moved externally.
                     this.oldX[i] = this.simX[i]
                     this.oldY[i] = this.simY[i]
                 }
@@ -363,8 +362,12 @@ namespace softbody {
             if (cullOffscreen && shouldCullQuad(drawTarget, x1, y1, x2, y2, x3, y3, x4, y4)) {
                 continue
             }
-            fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, softBody.fillColor)
-            fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, softBody.fillColor)
+            let segmentColor = softBody.fillColor
+            if (softBody.segmentFillColors && softBody.segmentFillColors.length > i) {
+                segmentColor = softBody.segmentFillColors[i]
+            }
+            fillTriangle(drawTarget, x1, y1, x2, y2, x3, y3, segmentColor)
+            fillTriangle(drawTarget, x1, y1, x3, y3, x4, y4, segmentColor)
         }
     }
     function drawBodyLines(softBody: SoftBody, drawTarget: Image, offsetX: number, offsetY: number, clipToTarget: boolean) {
@@ -439,6 +442,11 @@ namespace softbody {
             newBody.oldX.push(softBody.oldX[i])
             newBody.oldY.push(softBody.oldY[i])
             newBody.isFixed.push(softBody.isFixed[i])
+            if (softBody.segmentFillColors && softBody.segmentFillColors.length > i) {
+                newBody.segmentFillColors.push(softBody.segmentFillColors[i])
+            } else {
+                newBody.segmentFillColors.push(softBody.fillColor)
+            }
         }
 
         let removeCount = count - (index + 1)
@@ -449,6 +457,9 @@ namespace softbody {
             softBody.oldX.pop()
             softBody.oldY.pop()
             softBody.isFixed.pop()
+            if (softBody.segmentFillColors && softBody.segmentFillColors.length > 0) {
+                softBody.segmentFillColors.pop()
+            }
         }
 
         activeSoftBodies.push(newBody)
@@ -526,6 +537,20 @@ namespace softbody {
     //% help=github:bladebaillio/soft-body-extension/docs/modify
     export function setFillBetweenSegments(softBody: SoftBody, color: number) {
         softBody.fillColor = color
+        softBody.shouldFill = true
+        for (let i = 0; i < softBody.points.length; i++) {
+            softBody.segmentFillColors[i] = color
+        }
+    }
+    //% block="set fill color of segment $index in $softBody to $color"
+    //% softBody.shadow=variables_get
+    //% index.defl=0
+    //% color.defl=2
+    //% group="Modify"
+    //% help=github:bladebaillio/soft-body-extension/docs/modify
+    export function setSegmentFillColor(index: number, softBody: SoftBody, color: number) {
+        if (index < 0 || index >= softBody.points.length) return
+        softBody.segmentFillColors[index] = color
         softBody.shouldFill = true
     }
     //% block="render soft body $softBody on $drawTarget"
@@ -629,6 +654,7 @@ namespace softbody {
             softBody.oldX.push(sprite.x)
             softBody.oldY.push(sprite.y)
             softBody.isFixed.push(false)
+            softBody.segmentFillColors.push(softBody.fillColor)
             return
         }
         let lastPoint = softBody.points[softBody.points.length - 1]
@@ -640,6 +666,11 @@ namespace softbody {
         softBody.oldX.push(sprite.x)
         softBody.oldY.push(sprite.y)
         softBody.isFixed.push(false)
+        softBody.segmentFillColors.push(
+            softBody.segmentFillColors.length > 0
+                ? softBody.segmentFillColors[softBody.segmentFillColors.length - 1]
+                : softBody.fillColor
+        )
     }
     //% block="remove segment $index from $softBody"
     //% index.defl=0
@@ -655,6 +686,9 @@ namespace softbody {
             softBody.oldX.removeAt(index)
             softBody.oldY.removeAt(index)
             softBody.isFixed.removeAt(index)
+            if (softBody.segmentFillColors && softBody.segmentFillColors.length > index) {
+                softBody.segmentFillColors.removeAt(index)
+            }
         }
     }
     //% block="place $softBody at x $x y $y"
